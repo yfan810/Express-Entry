@@ -27,12 +27,15 @@ ee_trend = load_ee_data()
 ee_pool = load_ee_pool_data()
 quota_2025 = load_2025_quota()
 
+#ee_pool['timestamp'] = (ee_pool['date'].astype(int) / 10**9).astype(int)
+
 ee_melt = pd.melt(ee_pool, 
                   id_vars='date', 
                   value_vars=['601_1200', '501_600', '491_500', '481_490', '471_480', '461_470', 
                               '451_460', '441_450','431_440', '421_430', '411_420', '401_410', '351_400', '301_350', '0_300'],
                   var_name='range',
                   value_name='number')
+ee_melt['timestamp'] = (ee_melt['date'].astype(int) / 10**9).astype(int)
 
 quota_2025_melt = pd.melt(quota_2025,
                           id_vars=['year', 'type'],
@@ -47,4 +50,5 @@ ee_pool_2025 = ee_pool_2025[['type', 'invitations_issued']].groupby('type').agg(
 total_invitations = ee_pool_2025['invitations_issued'].sum()
 summary_row = pd.DataFrame({'type': ['Overall'], 'invitations_issued': [total_invitations]})
 ee_pool_2025 = pd.concat([ee_pool_2025, summary_row], ignore_index=True)
-#print(quota_2025)
+
+#print(ee_melt)

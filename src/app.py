@@ -2,7 +2,7 @@ from dash import Dash, dcc, callback, Input, Output, html
 import dash_bootstrap_components as dbc
 import pandas as pd
 import altair as alt
-from components.data import ee_melt, ee_trend, quota_2025, ee_pool_2025
+from components.data import ee_melt, ee_trend, quota_2025, ee_pool_2025, ee_pool
 import dash_vega_components as dvc
 import plotly.express as px
 import plotly.graph_objects as go
@@ -44,8 +44,6 @@ for i, row in quota_2025.iterrows():
         line=dict(color="green", width=3, dash="dash") 
     )
 
-
-
 title = html.H5(
     'Express Entry',
     style={
@@ -55,6 +53,7 @@ title = html.H5(
         'font-size': '28px'
     }
 )
+
 checklist_draw_type = dcc.Checklist(
     id = 'checklist_draw_type',
    options=['CEC', 'PNP', 'French', 'General', 'STEM', 'Trade', 'Agriculture', 'FSW', 'Health', 'Transport'],
@@ -84,52 +83,61 @@ dropdown_date = dcc.Dropdown(
     clearable=False
 )
 
-input_widget = dcc.Input(id="user_score", type="text", placeholder="",
-                         style={'border': 'none', 'border-bottom': '1px solid black', 
-                                'outline': 'none', 'width': '100%', 'margin-bottom': '15px'})
+#Date slider
+valid_timestamps = ee_melt['timestamp'].unique()
+valid_timestamps.sort() 
 
-sidebar = dbc.Col([
-    title,
-    html.H6("How about you?"),
-    input_widget,
-    html.Br(),
-    dropdown_category,
-    html.Br(),
-    checklist_draw_type,
-    html.Br(),
-    dropdown_date
-    ],
-    md=2,
-    style={
-        'background-color': '#e4f0f4',
-        'padding': 10,
-        'height': '100vh', 
-        'display': 'flex', 
-        'flex-direction': 'column', 
-    }
-) 
+slider_date = dcc.Slider(
+    valid_timestamps.min(),
+    valid_timestamps.max(),
+    step=None,
+    id='slider_date',
+    value=valid_timestamps.max(),
+    marks= {int(ts): pd.to_datetime(ts, unit='s').strftime('%m/%Y') for ts in valid_timestamps},
+    updatemode='drag'
+    )
+
+date_display = html.Div(id='date_display', style={'margin-top': '10px'})
+
+input_widget = dcc.Input(id="user_score", type="text", placeholder="Your CRS...",
+                         style={'border': 'none', 'border-bottom': '1px solid black', 'outline': 'none'})
 
 # Layout
 app.layout = dbc.Container([
     dbc.Row([
-        sidebar, 
+        dbc.Col([title]),
+        dbc.Col([input_widget], md = 1)
+    ]),
+    
+    html.Hr(style={"border": "1px solid #091b33", "width": "100%"}),
+    
+    dbc.Row([
         dbc.Col([
-            dbc.Row([
-                dbc.Col([
-                    #dvc.Vega(id='line_chart', opt={"renderer": "svg", "actions": False})
-                    dcc.Graph(id='line_chart')
-                ], md=10)
-                ]),
-            
-            dbc.Row([
-                dbc.Col([
-                    dcc.Graph(id='histogram_score', config={'displayModeBar': False}),
-                ], md=6),
-                dbc.Col([
-                    dcc.Graph(id='quota_histogram', figure = quota_histogram, config={'displayModeBar': False})
-                ], md=6),
-                
-                ])
+            slider_date
+            ], md = 4),
+        
+        dbc.Col([
+            date_display
+        ])
+    ]),
+        
+    dbc.Row([
+        dbc.Col([
+            dcc.Graph(id='histogram_score', config={'displayModeBar': False}),
+            ], md=6),
+        dbc.Col([
+            dcc.Graph(id='quota_histogram', figure = quota_histogram, config={'displayModeBar': False})
+            ], md=6),
+        ]),
+    
+    dbc.Row([
+        dbc.Col([
+            dropdown_category,
+            checklist_draw_type
+        ],md = 2),
+        
+        dbc.Col([
+            dcc.Graph(id='line_chart', config={'displayModeBar': False})
             ])
         ])
 ], fluid=True)
@@ -141,33 +149,31 @@ app.layout = dbc.Container([
     Input('checklist_draw_type', 'value'),
     Input('user_score', 'value'))  
 def update_line_chart(selected_cate, selected_type, user_score):
-    # Filter data based on selected draw types
-    filtered_ee = ee_trend[ee_trend['type'].isin(selected_type)]
-    
     # Create a Plotly figure
     fig = go.Figure()
 
     # Add a line trace for each draw type
     for draw_type in selected_type:
-        df = filtered_ee[filtered_ee['type'] == draw_type]
+        df = ee_trend[ee_trend['type'] == draw_type]
         fig.add_trace(go.Scatter(
             x=df['date'],
             y=df[selected_cate],
-            mode='lines+markers',  # Lines and markers
-            name=draw_type,  # Legend name
+            mode='lines+markers', 
+            name=draw_type, 
             line=dict(width=2),
             marker=dict(size=8),
             hovertemplate=(
                 f"<b>{draw_type}</b><br>" +
-                "Date: %{x|%b %Y}<br>" +
+                "Date: %{x|%d/%m/%Y}<br>" +
                 f"{selected_cate.replace('_', ' ').title()}: %{{y}}<br>" +
                 "<extra></extra>"
             )
         ))
+        
     # Add a horizontal line if user_score is provided
     if user_score:
         try:
-            user_score = float(user_score)
+            user_score = int(user_score)
             fig.add_hline(
                 y=user_score,
                 line_dash="dash",
@@ -176,7 +182,7 @@ def update_line_chart(selected_cate, selected_type, user_score):
                 annotation_position="top left"
             )
         except ValueError:
-            pass  # Ignore invalid input
+            pass  
 
     # Customize layout
     fig.update_layout(
@@ -185,60 +191,28 @@ def update_line_chart(selected_cate, selected_type, user_score):
         yaxis_title=selected_cate.replace('_', ' ').title(),
         font=dict(size=14),
         showlegend=True,
-        legend_title="Draw Type",
-        hovermode="x unified"
+        legend=dict(
+            orientation='h',  
+            yanchor='bottom',  
+            y=-0.3, 
+            xanchor='center', 
+            x=0.5
+        )
     )
-
     return fig
-
-
-# # Create line chart 
-# @callback(
-#     Output('line_chart', 'spec'),
-#     Input('dropdown_category', 'value'),
-#     Input('checklist_draw_type', 'value'),
-#     Input('user_score', 'value'))  
- 
-# def update_line_chart(selected_cate, selected_type, user_score):
-#     filtered_ee = ee_trend[ee_trend['type'].isin(selected_type)]
-    
-#     line_chart = alt.Chart(filtered_ee).mark_line().encode(
-#         x=alt.X('date:T', axis=alt.Axis(format="%b/%Y", title=None, grid=False)),
-#         y=alt.Y(selected_cate, title = None, scale=alt.Scale(zero=False)),
-#         color='type').properties(width=1000, height=250)
-    
-#     point_chart = alt.Chart(filtered_ee).mark_point(filled = True).encode(
-#         x=alt.X('date:T', axis=alt.Axis(format="%b/%Y", title=None)),
-#         y=alt.Y(selected_cate, title = None),
-#         color=alt.Color('type', title = 'Draw Type'),
-#         tooltip=["date", "type", selected_cate]).properties(width=1000, height=250).interactive()
-    
-#     combine_chart = line_chart + point_chart
-    
-#     # Horizontal Line (if user_score is entered)
-#     if user_score:
-#         try:
-#             user_score = float(user_score) 
-#             hline = alt.Chart(pd.DataFrame({'y': [user_score]})).mark_rule(
-#                 color='red', strokeDash=[6, 6]  
-#             ).encode(y='y:Q', size = alt.value(2))
-            
-#             return (combine_chart + hline).to_dict() 
-#         except ValueError:
-#             pass 
-    
-#     return combine_chart.to_dict()
 
 
 #Histogram of score distribution
 @callback(
+    Output('date_display', 'children'),
     Output('histogram_score', 'figure'),
-    Input('dropdown_date', 'value'))
-def update_score_distribution(selected_date):    
-    filtered_ee = ee_melt[ee_melt['date'] == selected_date]
+    Input('slider_date', 'value')) 
+def update_score_distribution(selected_timestamp):    
+    filtered_ee = ee_melt[ee_melt['timestamp'] == selected_timestamp]
     histo = px.bar(filtered_ee, x="range", y="number", labels={"range": "CRS Range", "number": "# of Candidates"})
     
-    return histo
+    formated_date = pd.to_datetime(selected_timestamp, unit='s').strftime('%Y-%m-%d')
+    return formated_date, histo
 
 if __name__ == '__main__':
     app.run(debug=True)
